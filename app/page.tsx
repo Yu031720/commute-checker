@@ -12,6 +12,48 @@ import type { DrivingRoute } from "@/lib/types";
 
 type Coords = { lat: number; lng: number };
 
+type Congestion = {
+  label: string;
+  badgeClass: string;
+  cardClass: string;
+};
+
+function congestionOf(route: DrivingRoute): Congestion {
+  if (!route.durationInTrafficValue || !route.durationValue) {
+    return {
+      label: "通常",
+      badgeClass: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+      cardClass: "from-slate-500 to-slate-600",
+    };
+  }
+  const ratio = route.durationInTrafficValue / route.durationValue;
+  if (ratio <= 1.1) {
+    return {
+      label: "順調",
+      badgeClass: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+      cardClass: "from-emerald-500 to-emerald-600",
+    };
+  }
+  if (ratio <= 1.3) {
+    return {
+      label: "やや混雑",
+      badgeClass: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+      cardClass: "from-amber-500 to-amber-600",
+    };
+  }
+  return {
+    label: "混雑",
+    badgeClass: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
+    cardClass: "from-rose-500 to-rose-600",
+  };
+}
+
+function arrivalTimeText(route: DrivingRoute): string {
+  const seconds = route.durationInTrafficValue ?? route.durationValue;
+  const arrival = new Date(Date.now() + seconds * 1000);
+  return arrival.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+}
+
 export default function Home() {
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -22,23 +64,29 @@ export default function Home() {
   const [drivingRoute, setDrivingRoute] = useState<DrivingRoute | null>(null);
   const [loading, setLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     setDestinations(loadDestinations());
     setSelectedId(loadSelectedDestinationId());
   }, []);
 
-  useEffect(() => {
+  const requestLocation = useCallback(() => {
     if (!navigator.geolocation) {
       setLocationError("この端末では位置情報が利用できません");
       return;
     }
+    setLocationError(null);
     navigator.geolocation.getCurrentPosition(
       (pos) => setOrigin({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => setLocationError("位置情報を取得できませんでした。設定で許可してください"),
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }, []);
+
+  useEffect(() => {
+    requestLocation();
+  }, [requestLocation]);
 
   const selectedDestination = useMemo(
     () => destinations.find((d) => d.id === selectedId) ?? null,
@@ -48,7 +96,6 @@ export default function Home() {
   const fetchRoute = useCallback(async (o: Coords, dest: Destination) => {
     setLoading(true);
     setRouteError(null);
-    setDrivingRoute(null);
     try {
       const res = await fetch(
         `/api/route?originLat=${o.lat}&originLng=${o.lng}&destLat=${dest.lat}&destLng=${dest.lng}`
@@ -56,6 +103,7 @@ export default function Home() {
       const data = await res.json();
       if (res.ok) {
         setDrivingRoute(data as DrivingRoute);
+        setUpdatedAt(new Date());
       } else {
         setRouteError(data.error ?? "経路の取得に失敗しました");
       }
@@ -75,60 +123,127 @@ export default function Home() {
   function handleSelectDestination(id: string) {
     saveSelectedDestinationId(id);
     setSelectedId(id);
+    setDrivingRoute(null);
   }
 
+  function handleRefresh() {
+    requestLocation();
+    if (origin && selectedDestination) {
+      fetchRoute(origin, selectedDestination);
+    }
+  }
+
+  const congestion = drivingRoute ? congestionOf(drivingRoute) : null;
+
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-4 p-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">今日の通勤</h1>
-        <Link href="/destinations" className="text-sm text-blue-600 underline">
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-5 p-4 pb-10">
+      <header className="flex items-center justify-between pt-2">
+        <div>
+          <p className="text-xs font-medium text-slate-400 dark:text-slate-500">
+            {new Date().toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" })}
+          </p>
+          <h1 className="text-xl font-bold tracking-tight">今日の通勤</h1>
+        </div>
+        <Link
+          href="/destinations"
+          className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800"
+        >
           目的地を管理
         </Link>
-      </div>
+      </header>
 
       {destinations.length === 0 ? (
-        <div className="rounded-xl border border-black/10 p-4 text-sm text-black/60">
-          まだ目的地が登録されていません。
-          <Link href="/destinations" className="ml-1 text-blue-600 underline">
+        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-slate-300 p-8 text-center dark:border-slate-700">
+          <span className="text-3xl">🚗</span>
+          <p className="text-sm text-slate-500 dark:text-slate-400">まだ目的地が登録されていません</p>
+          <Link
+            href="/destinations"
+            className="mt-1 rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+          >
             目的地を追加する
           </Link>
         </div>
       ) : (
-        <select
-          className="rounded-md border border-black/20 px-3 py-2 text-sm"
-          value={selectedId ?? ""}
-          onChange={(e) => handleSelectDestination(e.target.value)}
-        >
-          <option value="" disabled>
-            目的地を選択
-          </option>
-          {destinations.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+          {destinations.map((d) => {
+            const active = d.id === selectedId;
+            return (
+              <button
+                key={d.id}
+                onClick={() => handleSelectDestination(d.id)}
+                className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                  active
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "bg-white text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-800"
+                }`}
+              >
+                {d.name}
+              </button>
+            );
+          })}
+        </div>
       )}
 
-      {locationError && <p className="text-sm text-red-600">{locationError}</p>}
+      {locationError && (
+        <div className="flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+          <span>{locationError}</span>
+          <button onClick={requestLocation} className="font-medium underline underline-offset-2">
+            再試行
+          </button>
+        </div>
+      )}
 
       {selectedDestination && (
         <>
-          {loading && <p className="text-sm text-black/50">読み込み中...</p>}
-          {routeError && <p className="text-sm text-red-600">{routeError}</p>}
+          {routeError && (
+            <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:bg-rose-900/20 dark:text-rose-300">
+              {routeError}
+            </p>
+          )}
 
-          {drivingRoute && (
-            <div className="flex flex-col gap-2 rounded-xl border border-black/10 p-4">
-              <div className="flex items-baseline justify-between">
-                <span className="text-2xl font-semibold">
-                  {drivingRoute.durationInTrafficText ?? drivingRoute.durationText}
+          {loading && !drivingRoute && (
+            <div className="animate-pulse-soft rounded-2xl bg-slate-200 p-6 dark:bg-slate-800">
+              <div className="mb-3 h-3 w-16 rounded bg-slate-300 dark:bg-slate-700" />
+              <div className="mb-2 h-9 w-32 rounded bg-slate-300 dark:bg-slate-700" />
+              <div className="h-3 w-24 rounded bg-slate-300 dark:bg-slate-700" />
+            </div>
+          )}
+
+          {drivingRoute && congestion && (
+            <div
+              className={`relative overflow-hidden rounded-2xl bg-gradient-to-br p-6 text-white shadow-lg ${congestion.cardClass}`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold backdrop-blur-sm">
+                  {congestion.label}
                 </span>
-                <span className="text-sm text-black/50">{drivingRoute.distanceText}</span>
+                <button
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  aria-label="更新"
+                  className="rounded-full bg-white/20 p-1.5 backdrop-blur-sm disabled:opacity-50"
+                >
+                  <span className={loading ? "inline-block animate-spin" : ""}>⟳</span>
+                </button>
               </div>
+
+              <p className="mt-4 text-4xl font-bold tracking-tight">
+                {drivingRoute.durationInTrafficText ?? drivingRoute.durationText}
+              </p>
+              <p className="mt-1 text-sm text-white/80">
+                到着予定 {arrivalTimeText(drivingRoute)}・{drivingRoute.distanceText}
+              </p>
+
               {drivingRoute.durationInTrafficText &&
                 drivingRoute.durationInTrafficText !== drivingRoute.durationText && (
-                  <p className="text-xs text-black/50">通常時 {drivingRoute.durationText}</p>
+                  <p className="mt-3 text-xs text-white/70">通常時 {drivingRoute.durationText}</p>
                 )}
+
+              {updatedAt && (
+                <p className="mt-4 text-[11px] text-white/60">
+                  {updatedAt.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })} 時点の情報
+                </p>
+              )}
             </div>
           )}
         </>

@@ -15,11 +15,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "通勤チェッカー",
-  description: "今日の目的地までの交通状況と電車遅延情報をまとめて確認",
+  description: "今日の目的地までの車の所要時間・渋滞状況をまとめて確認",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
     title: "通勤チェッカー",
   },
 };
@@ -27,7 +27,11 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#2563eb",
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#2563eb" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f172a" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -36,7 +40,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="ja"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
         {children}
         <ServiceWorkerRegister />
       </body>
