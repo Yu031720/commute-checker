@@ -5,4 +5,5 @@ export type DrivingRoute = {
   durationInTrafficText: string | null;
   durationInTrafficValue: number | null;
   distanceText: string;
+  overviewPolyline: string;
 };

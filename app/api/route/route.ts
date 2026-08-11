@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
     durationInTrafficText: leg.duration_in_traffic?.text ?? null,
     durationInTrafficValue: leg.duration_in_traffic?.value ?? null,
     distanceText: leg.distance?.text ?? "",
+    overviewPolyline: data.routes[0].overview_polyline?.points ?? "",
   };
   return NextResponse.json(result);
 }

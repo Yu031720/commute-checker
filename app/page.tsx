@@ -16,6 +16,8 @@ type Congestion = {
   label: string;
   badgeClass: string;
   cardClass: string;
+  gaugeClass: string;
+  pct: number;
 };
 
 function congestionOf(route: DrivingRoute): Congestion {
@@ -24,34 +26,58 @@ function congestionOf(route: DrivingRoute): Congestion {
       label: "通常",
       badgeClass: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
       cardClass: "from-slate-500 to-slate-600",
+      gaugeClass: "bg-white",
+      pct: 100,
     };
   }
-  const ratio = route.durationInTrafficValue / route.durationValue;
-  if (ratio <= 1.1) {
+  const pct = Math.round((route.durationInTrafficValue / route.durationValue) * 100);
+  if (pct <= 110) {
     return {
       label: "順調",
       badgeClass: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
       cardClass: "from-emerald-500 to-emerald-600",
+      gaugeClass: "bg-white",
+      pct,
     };
   }
-  if (ratio <= 1.3) {
+  if (pct <= 130) {
     return {
       label: "やや混雑",
       badgeClass: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
       cardClass: "from-amber-500 to-amber-600",
+      gaugeClass: "bg-white",
+      pct,
     };
   }
   return {
     label: "混雑",
     badgeClass: "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
     cardClass: "from-rose-500 to-rose-600",
+    gaugeClass: "bg-white",
+    pct,
   };
+}
+
+function deltaMinutesOf(route: DrivingRoute): number {
+  if (!route.durationInTrafficValue || !route.durationValue) return 0;
+  return Math.round((route.durationInTrafficValue - route.durationValue) / 60);
 }
 
 function arrivalTimeText(route: DrivingRoute): string {
   const seconds = route.durationInTrafficValue ?? route.durationValue;
   const arrival = new Date(Date.now() + seconds * 1000);
   return arrival.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+}
+
+function staticMapUrl(route: DrivingRoute, origin: Coords, dest: Destination): string {
+  const params = new URLSearchParams({
+    polyline: route.overviewPolyline,
+    originLat: String(origin.lat),
+    originLng: String(origin.lng),
+    destLat: String(dest.lat),
+    destLng: String(dest.lng),
+  });
+  return `/api/staticmap?${params.toString()}`;
 }
 
 export default function Home() {
@@ -65,6 +91,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
 
   useEffect(() => {
     setDestinations(loadDestinations());
@@ -104,6 +131,7 @@ export default function Home() {
       if (res.ok) {
         setDrivingRoute(data as DrivingRoute);
         setUpdatedAt(new Date());
+        setMapLoaded(false);
       } else {
         setRouteError(data.error ?? "経路の取得に失敗しました");
       }
@@ -134,6 +162,8 @@ export default function Home() {
   }
 
   const congestion = drivingRoute ? congestionOf(drivingRoute) : null;
+  const deltaMinutes = drivingRoute ? deltaMinutesOf(drivingRoute) : 0;
+  const gaugeFillPct = congestion ? Math.min(100, Math.max(0, ((congestion.pct - 100) / 80) * 100)) : 0;
 
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-5 p-4 pb-10">
@@ -209,7 +239,7 @@ export default function Home() {
             </div>
           )}
 
-          {drivingRoute && congestion && (
+          {drivingRoute && congestion && origin && (
             <div
               className={`relative overflow-hidden rounded-2xl bg-gradient-to-br p-6 text-white shadow-lg ${congestion.cardClass}`}
             >
@@ -230,14 +260,37 @@ export default function Home() {
               <p className="mt-4 text-4xl font-bold tracking-tight">
                 {drivingRoute.durationInTrafficText ?? drivingRoute.durationText}
               </p>
-              <p className="mt-1 text-sm text-white/80">
+
+              <span className="mt-2 inline-block rounded-full bg-white/20 px-3 py-1 text-sm font-semibold backdrop-blur-sm">
+                {deltaMinutes > 0 ? `+${deltaMinutes}分(通常より)` : "遅れなし"}
+              </span>
+
+              <div className="mt-4">
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
+                  <div
+                    className={`h-full rounded-full ${congestion.gaugeClass} transition-all`}
+                    style={{ width: `${gaugeFillPct}%` }}
+                  />
+                </div>
+                <p className="mt-1.5 text-xs text-white/70">通常比 {congestion.pct}%</p>
+              </div>
+
+              <p className="mt-4 text-sm text-white/80">
                 到着予定 {arrivalTimeText(drivingRoute)}・{drivingRoute.distanceText}
               </p>
 
-              {drivingRoute.durationInTrafficText &&
-                drivingRoute.durationInTrafficText !== drivingRoute.durationText && (
-                  <p className="mt-3 text-xs text-white/70">通常時 {drivingRoute.durationText}</p>
-                )}
+              {drivingRoute.overviewPolyline && (
+                <div className="relative mt-4 aspect-video w-full overflow-hidden rounded-xl bg-white/10">
+                  {!mapLoaded && <div className="absolute inset-0 animate-pulse-soft bg-white/10" />}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={staticMapUrl(drivingRoute, origin, selectedDestination)}
+                    alt="経路地図"
+                    className="h-full w-full object-cover"
+                    onLoad={() => setMapLoaded(true)}
+                  />
+                </div>
+              )}
 
               {updatedAt && (
                 <p className="mt-4 text-[11px] text-white/60">
