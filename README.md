@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 通勤チェッカー
 
-## Getting Started
+今日の目的地までの交通状況(電車・車)と電車遅延情報をまとめて確認するPWA。
 
-First, run the development server:
+## セットアップ
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+1. 依存関係をインストール
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+   ```bash
+   npm install
+   ```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+2. `.env.local.example` を `.env.local` にコピーし、APIキーを設定
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+   ```bash
+   cp .env.local.example .env.local
+   ```
 
-## Learn More
+   - `GOOGLE_MAPS_API_KEY`: Google Cloud Console で Directions API・Geocoding API を有効化して発行したキー
+   - `ODPT_API_KEY`: https://developer-dc.odpt.org/ で開発者登録して発行したアクセストークン(コンシューマーキー)
 
-To learn more about Next.js, take a look at the following resources:
+3. 開発サーバーを起動
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+   ```bash
+   npm run dev
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+   http://localhost:3000 を開く。
 
-## Deploy on Vercel
+## 構成
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `app/page.tsx` — ホーム画面(目的地選択 + 電車/車タブ)
+- `app/destinations/page.tsx` — 目的地の登録・管理(ブラウザの localStorage に保存)
+- `app/api/geocode` — 住所→緯度経度変換(Google Geocoding API)
+- `app/api/route` — 経路検索(Google Directions API、電車/車)
+- `app/api/delays` — 電車遅延情報(ODPT TrainInformation API)
+- `lib/odpt-lines.ts` — 路線名 → ODPT路線IDのマッピング(関東圏の主要路線のみ)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## デプロイ (Vercel)
+
+1. GitHubリポジトリをVercelにインポート
+2. プロジェクト設定の Environment Variables に `GOOGLE_MAPS_API_KEY` と `ODPT_API_KEY` を設定
+3. デプロイ後、スマホのブラウザで開いて「ホーム画面に追加」でPWAとしてインストール可能
