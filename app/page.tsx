@@ -8,21 +8,18 @@ import {
   loadSelectedDestinationId,
   saveSelectedDestinationId,
 } from "@/lib/destinations";
-import type { DrivingRoute, LineDelay, TransitRoute } from "@/lib/types";
+import type { DrivingRoute } from "@/lib/types";
 
 type Coords = { lat: number; lng: number };
 
 export default function Home() {
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"transit" | "driving">("transit");
 
   const [origin, setOrigin] = useState<Coords | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
 
-  const [transitRoute, setTransitRoute] = useState<TransitRoute | null>(null);
   const [drivingRoute, setDrivingRoute] = useState<DrivingRoute | null>(null);
-  const [delays, setDelays] = useState<LineDelay[]>([]);
   const [loading, setLoading] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
 
@@ -48,34 +45,19 @@ export default function Home() {
     [destinations, selectedId]
   );
 
-  const fetchRoutes = useCallback(async (o: Coords, dest: Destination) => {
+  const fetchRoute = useCallback(async (o: Coords, dest: Destination) => {
     setLoading(true);
     setRouteError(null);
-    setTransitRoute(null);
     setDrivingRoute(null);
-    setDelays([]);
     try {
-      const [transitRes, drivingRes] = await Promise.all([
-        fetch(`/api/route?originLat=${o.lat}&originLng=${o.lng}&destLat=${dest.lat}&destLng=${dest.lng}&mode=transit`),
-        fetch(`/api/route?originLat=${o.lat}&originLng=${o.lng}&destLat=${dest.lat}&destLng=${dest.lng}&mode=driving`),
-      ]);
-      const [transitData, drivingData] = await Promise.all([transitRes.json(), drivingRes.json()]);
-
-      if (transitRes.ok) {
-        setTransitRoute(transitData as TransitRoute);
-        const lineNames = Array.from(new Set((transitData as TransitRoute).steps.map((s) => s.lineName)));
-        if (lineNames.length > 0) {
-          const delaysRes = await fetch(`/api/delays?lines=${encodeURIComponent(lineNames.join(","))}`);
-          if (delaysRes.ok) {
-            setDelays(await delaysRes.json());
-          }
-        }
-      }
-      if (drivingRes.ok) {
-        setDrivingRoute(drivingData as DrivingRoute);
-      }
-      if (!transitRes.ok && !drivingRes.ok) {
-        setRouteError(transitData.error ?? drivingData.error ?? "経路の取得に失敗しました");
+      const res = await fetch(
+        `/api/route?originLat=${o.lat}&originLng=${o.lng}&destLat=${dest.lat}&destLng=${dest.lng}`
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setDrivingRoute(data as DrivingRoute);
+      } else {
+        setRouteError(data.error ?? "経路の取得に失敗しました");
       }
     } catch {
       setRouteError("通信エラーが発生しました");
@@ -86,17 +68,13 @@ export default function Home() {
 
   useEffect(() => {
     if (origin && selectedDestination) {
-      fetchRoutes(origin, selectedDestination);
+      fetchRoute(origin, selectedDestination);
     }
-  }, [origin, selectedDestination, fetchRoutes]);
+  }, [origin, selectedDestination, fetchRoute]);
 
   function handleSelectDestination(id: string) {
     saveSelectedDestinationId(id);
     setSelectedId(id);
-  }
-
-  function delayFor(lineName: string): LineDelay | undefined {
-    return delays.find((d) => d.lineName === lineName);
   }
 
   return (
@@ -136,58 +114,10 @@ export default function Home() {
 
       {selectedDestination && (
         <>
-          <div className="flex gap-2">
-            <button
-              className={`flex-1 rounded-md px-3 py-2 text-sm font-medium ${
-                tab === "transit" ? "bg-blue-600 text-white" : "bg-black/5"
-              }`}
-              onClick={() => setTab("transit")}
-            >
-              電車
-            </button>
-            <button
-              className={`flex-1 rounded-md px-3 py-2 text-sm font-medium ${
-                tab === "driving" ? "bg-blue-600 text-white" : "bg-black/5"
-              }`}
-              onClick={() => setTab("driving")}
-            >
-              車
-            </button>
-          </div>
-
           {loading && <p className="text-sm text-black/50">読み込み中...</p>}
           {routeError && <p className="text-sm text-red-600">{routeError}</p>}
 
-          {tab === "transit" && transitRoute && (
-            <div className="flex flex-col gap-3 rounded-xl border border-black/10 p-4">
-              <div className="flex items-baseline justify-between">
-                <span className="text-2xl font-semibold">{transitRoute.durationText}</span>
-                {transitRoute.arrivalTimeText && (
-                  <span className="text-sm text-black/50">到着 {transitRoute.arrivalTimeText}</span>
-                )}
-              </div>
-              {transitRoute.fareText && <p className="text-sm text-black/50">運賃 {transitRoute.fareText}</p>}
-              <ul className="flex flex-col gap-2">
-                {transitRoute.steps.map((step, i) => {
-                  const delay = delayFor(step.lineName);
-                  return (
-                    <li key={i} className="rounded-lg bg-black/5 p-3 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{step.lineName}</span>
-                        <DelayBadge delay={delay} />
-                      </div>
-                      <div className="mt-1 text-xs text-black/50">
-                        {step.departureStop} → {step.arrivalStop}
-                      </div>
-                      {delay?.text && <div className="mt-1 text-xs text-amber-700">{delay.text}</div>}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-
-          {tab === "driving" && drivingRoute && (
+          {drivingRoute && (
             <div className="flex flex-col gap-2 rounded-xl border border-black/10 p-4">
               <div className="flex items-baseline justify-between">
                 <span className="text-2xl font-semibold">
@@ -204,26 +134,5 @@ export default function Home() {
         </>
       )}
     </main>
-  );
-}
-
-function DelayBadge({ delay }: { delay?: LineDelay }) {
-  if (!delay) return null;
-  const styles: Record<string, string> = {
-    normal: "bg-green-100 text-green-700",
-    delay: "bg-red-100 text-red-700",
-    unmapped: "bg-black/5 text-black/40",
-    unknown: "bg-black/5 text-black/40",
-  };
-  const labels: Record<string, string> = {
-    normal: "平常運転",
-    delay: "遅延あり",
-    unmapped: "情報対象外",
-    unknown: "取得失敗",
-  };
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${styles[delay.status]}`}>
-      {labels[delay.status]}
-    </span>
   );
 }
